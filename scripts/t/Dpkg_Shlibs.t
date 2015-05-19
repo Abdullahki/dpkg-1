@@ -16,7 +16,7 @@
 use strict;
 use warnings;
 
-use Test::More tests => 122;
+use Test::More tests => 124;
 
 use Cwd;
 use IO::String;
@@ -189,6 +189,26 @@ sub save_load_test {
 
 save_load_test( $sym_file, 'save -> load' );
 
+open $objdump, '<', "$datadir/objdump.spaces"
+  or die "$datadir/objdump.spaces: $!";
+$obj->reset();
+$obj->parse_objdump_output($objdump);
+close $objdump;
+
+$sym = $obj->get_symbol('spaces no version');
+is_deeply( $sym, { name => 'spaces no version', version => '',
+		   soname => 'libc.so.6', objid => 'libc.so.6',
+		   section => '*UND*', dynamic => 1,
+		   debug => '', type => 'F', weak => '',
+		   local => '', global => '', visibility => '',
+		   hidden => '', defined => '' }, 'spaces no version' );
+$sym = $obj->{dynsyms}{'spaces with version@GLIBC_2.0'};
+is_deeply( $sym, { name => 'spaces with version', version => 'GLIBC_2.0',
+		   soname => 'libc.so.6', objid => 'libc.so.6',
+		   section => '*UND*', dynamic => 1,
+		   debug => '', type => 'F', weak => '',
+		   local => '', global => '', visibility => '',
+		   hidden => '', defined => '' }, 'spaces with version' );
 
 # Test ignoring blacklisted symbols
 open $objdump, '<', "$datadir/objdump.blacklisted"

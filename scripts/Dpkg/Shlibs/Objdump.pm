@@ -219,7 +219,7 @@ sub parse_objdump_output {
 	if ($section eq 'dynsym') {
 	    $self->parse_dynamic_symbol($_);
 	} elsif ($section eq 'dynreloc') {
-	    if (/^\S+\s+(\S+)\s+(\S+)\s*$/) {
+	    if (/^\S+\s+(\S+)\s+(.+)$/) {
 		$self->{dynrelocs}{$2} = $1;
 	    } else {
 		warning(g_("couldn't parse dynamic relocation record: %s"), $_);
@@ -297,21 +297,37 @@ sub parse_objdump_output {
 sub parse_dynamic_symbol {
     my ($self, $line) = @_;
     my $vis_re = '(\.protected|\.hidden|\.internal|0x\S+)';
-    if ($line =~ /^[0-9a-f]+ (.{7})\s+(\S+)\s+[0-9a-f]+(?:\s+(\S+))?(?:\s+$vis_re)?\s+(\S+)/) {
+    if ($line =~ /^[0-9a-f]+ (.{7})\s+(\S+)\s+[0-9a-f]+(.+)$/) {
 
-	my ($flags, $sect, $ver, $vis, $name) = ($1, $2, $3, $4, $5);
+	my ($flags, $sect, $rest) = ($1, $2, $3);
+        my ($ver, $vis, $name);
 
-	# Special case if version is missing but extra visibility
-	# attribute replaces it in the match
-	if (defined($ver) and $ver =~ /^$vis_re$/) {
-	    $vis = $ver;
-	    $ver = '';
-	}
+        if ($rest =~ /^ {11}/) {
+            # No version
+            $rest =~ s/^\s+|\s+$//g;
+            if ($rest =~ /^$vis_re\s+(\S.+)/) {
+                $vis = $1;
+                $name = $2;
+            } else {
+                $name = $rest;
+            }
+        } elsif ($rest =~ /(?:\s+(\S+))?(?:\s+$vis_re)?\s+(.+)/) {
+            ($ver, $vis, $name) = ($1, $2, $3);
+            # Special case if version is missing but extra visibility
+            # attribute replaces it in the match
+            if (defined($ver) and $ver =~ /^$vis_re$/) {
+                $vis = $ver;
+                $ver = '';
+            }
+        }
 
-	# Cleanup visibility field
-	$vis =~ s/^\.// if defined($vis);
+        if (defined($name)) {
+            # Cleanup visibility field
+            $vis =~ s/^\.// if defined($vis);
+            Test::More::diag($name) if defined(&Test::More::diag) && $name =~ / /;
 
-	my $symbol = {
+            # Register symbol
+            my $symbol = {
 		name => $name,
 		version => $ver // '',
 		section => $sect,
@@ -326,16 +342,18 @@ sub parse_dynamic_symbol {
 		defined => $sect ne '*UND*'
 	    };
 
-	# Handle hidden symbols
-	if (defined($ver) and $ver =~ /^\((.*)\)$/) {
-	    $ver = $1;
-	    $symbol->{version} = $1;
-	    $symbol->{hidden} = 1;
-	}
+            # Handle hidden symbols
+            if (defined($ver) and $ver =~ /^\((.*)\)$/) {
+                $ver = $1;
+                $symbol->{version} = $1;
+                $symbol->{hidden} = 1;
+            }
+            $self->add_dynamic_symbol($symbol);
+            return;
+        }
+    }
 
-	# Register symbol
-	$self->add_dynamic_symbol($symbol);
-    } elsif ($line =~ /^[0-9a-f]+ (.{7})\s+(\S+)\s+[0-9a-f]+/) {
+    if ($line =~ /^[0-9a-f]+ (.{7})\s+(\S+)\s+[0-9a-f]+/) {
 	# Same start but no version and no symbol ... just ignore
     } elsif ($line =~ /^REG_G\d+\s+/) {
 	# Ignore some s390-specific output like
